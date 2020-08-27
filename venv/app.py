@@ -1,48 +1,150 @@
 from flask import Flask,jsonify, abort, request
 import json
 from flask import make_response
+import sqlite3
 
 app = Flask(__name__)
 
 class batch():
-    barcode=-99
-    batchNumber=-99
-    theoreticalQty=-99
-    sortMethod=-99
+    barcode=None
+    batchNumber=None
+    theoreticalQty=None
+    sortMethod=None
 
     def printing(self):
-        print(f"barcode:{self.barcode}, batchNumber:{self.batchNumber}, theoreticalQty:{self.theoreticalQty}, sortMethod:{self.sortMethod}")
+        print(f"barcode:{self.barcode}, batchNumber:{self.batchNumber}, "
+              f"theoreticalQty:{self.theoreticalQty}, sortMethod:{self.sortMethod}")
 
 
 @app.route('/tu/announce', methods=['POST'])
 def announce():
     data_request = json.loads(request.data)
-    global sort_metod
+    global sort_metod_error, message
 
     data_batch=batch()
-    data_batch.barcode=data_request["tu"]["barcode"]
-    data_batch.batchNumber=data_request["tu"]["batchNumber"]
+    conn = sqlite3.connect('DB.db')
+    cursor = conn.cursor()
 
-    data_batch.theoreticalQty=data_request["theoreticalQty"]
-    data_batch.sortMethod=data_request["sortMethod"]
 
-    sort_metod = 30
-    abort(404)
+    try:
+        data_batch.barcode=data_request["tu"]["barcode"]
+    except:
+        message = "no barcode"
+        abort(400)
+        message = None
+    if not data_batch.barcode:
+        message = "barcode is empty"
+        abort(400)
+        message = None
 
-    return "",201
+
+    try:
+        data_batch.batchNumber=data_request["tu"]["batchNumber"]
+    except:
+        message = "no batchNumber"
+        abort(400)
+        message = None
+    if not data_batch.batchNumber:
+        message = "batchNumber is empty"
+        abort(400)
+        message = None
+
+
+    try:
+        data_batch.theoreticalQty=data_request["theoreticalQty"]
+    except:
+        message = "no theoreticalQty"
+        abort(400)
+        message = None
+    if data_batch.theoreticalQty <= 0:
+        message = "theoreticalQty less or equal 0"
+        abort(400)
+        message = None
+
+
+    try:
+        data_batch.sortMethod=data_request["sortMethod"]
+    except:
+        message = "no sortMethod"
+        abort(400)
+        message = None
+    if data_batch.sortMethod == 0:
+        message = "sortMethod equals 0"
+        abort(400)
+        message = None
+    cursor.execute(f'SELECT "shoot" from shoots WHERE '
+                   f'"primary ID MC"={data_batch.sortMethod} or "second ID MC"={data_batch.sortMethod}')
+    if not cursor.fetchall():
+        sort_metod_error=data_batch.sortMethod
+        abort(404)
+        sort_metod_error=0
+
+
+    cursor.execute(f"insert into Save values ('"
+                   f"{data_batch.barcode}','{data_batch.batchNumber}','{data_batch.theoreticalQty}','{data_batch.sortMethod}')")
+    conn.commit()
+
+
+    cursor.execute(f'select')
+
+
+
+
+    return "",200
+
+@app.route('/tu/remove', methods=['POST'])
+def remove():
+    global message
+    data_request = json.loads(request.data)
+
+    data_batch=batch()
+
+    try:
+        data_batch.barcode = data_request["tu"]["barcode"]
+    except:
+        message = "no barcode"
+        abort(400)
+        message = None
+
+    try:
+        data_batch.batchNumber = data_request["tu"]["batchNumber"]
+        message_batchNumber = f" AND batchNumber='{data_batch.batchNumber}'"
+    except:
+        message_batchNumber=""
+
+    conn = sqlite3.connect('DB.db')
+    cursor = conn.cursor()
+    cursor.execute(f"DELETE FROM Save where barcode='{data_batch.barcode}'+{message_batchNumber}")
+    conn.commit()
+
+    return "",200
+
 @app.route('/batch/finished', methods=['POST'])
 def finished():
     data_request = json.loads(request.data)
 
+    data_batch=batch()
+
+    try:
+        data_batch.batchNumber = data_request["tu"]["batchNumber"]
+    except:
+        message = "no barcode"
+        abort(400)
+        message = None
+    if not data_batch.batchNumber:
+        message = "batchNumber is empty"
+        abort(400)
+        message = None
 
 @app.errorhandler(400)
 def bad_data(error):
+    global message
     return make_response(jsonify({
                                     "message": "Invalid data",
                                     "errors":
                                     [{
                                         "path": "/tu/barcode",
-                                        "message": "expected a minimum length of 1",
+                                        "message": message,
                                         "additionalProp1": {}
                                      }],
                                     "additionalProp1": {}
@@ -50,8 +152,8 @@ def bad_data(error):
 
 @app.errorhandler(404)
 def not_found(error):
-    global sort_metod
-    return make_response(jsonify({'message': f'There is no chanel with sorting method {sort_metod}'}), 404)
+    global sort_metod_error
+    return make_response(jsonify({'message': f'There is no chanel with sorting method {sort_metod_error}'}), 404)
 
 @app.errorhandler(408)
 def Request_timeout(error):
